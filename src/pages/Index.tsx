@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Card } from '@/components/ui/card';
@@ -15,6 +17,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useEffect } from 'react';
+
+declare global {
+  interface Window {
+    PaystackPop: any;
+  }
+}
 
 const categories = [
   {
@@ -37,8 +46,6 @@ const categories = [
   }
 ];
 
-const DonationAmounts = [5000, 10000, 25000, 50000, 100000];
-
 interface DonorDetails {
   fullName: string;
   email: string;
@@ -52,7 +59,7 @@ const Index = () => {
   const [amount, setAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [donorDetails, setDonorDetails] = useState({
+  const [donorDetails, setDonorDetails] = useState<DonorDetails>({
     fullName: '',
     email: '',
     phone: '',
@@ -65,6 +72,16 @@ const Index = () => {
     amount: string;
   } | null>(null);
 
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://js.paystack.co/v1/inline.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
   const handleDonorDetailsChange = (field: keyof DonorDetails, value: string) => {
     setDonorDetails(prev => ({
       ...prev,
@@ -72,35 +89,60 @@ const Index = () => {
     }));
   };
 
-  const handleDonate = async () => {
-    setIsProcessing(true);
-    try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Generate receipt details
-      const receipt = {
-        transactionId: Math.random().toString(36).substring(2, 15),
-        date: new Date().toLocaleDateString(),
-        category: categories.find(c => c.id === selectedCategory)?.title || '',
-        amount: amount
-      };
-      setReceiptDetails(receipt);
-      setShowReceipt(true);
-
-      toast({
-        title: "Thank you for your donation!",
-        description: "Your contribution to UNILORIN's 50th celebration will make a real difference.",
-      });
-    } catch (error) {
-      toast({
-        title: "Error processing donation",
-        description: "Please try again later.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
+  const getSplitDetails = (amount: number) => {
+    if (amount >= 1000 && amount < 100000) {
+      return "ACCT_mj9aiw5uvm41c1r"; // UNILORIN
+    } else if (amount >= 500) {
+      return "ACCT_h8imbv2laypvg4b"; // Ashlab
     }
+    return undefined;
+  };
+
+  const handleDonate = () => {
+    if (!isFormValid()) return;
+
+    setIsProcessing(true);
+
+    const splitCode = getSplitDetails(parseInt(amount));
+    const handler = window.PaystackPop.setup({
+      key: 'pk_test_0ef69c5e0189031d58bd743d5c0eaa5fa5b8c743',
+      email: donorDetails.email,
+      amount: parseInt(amount) * 100, // Paystack uses kobo
+      currency: 'NGN',
+      ref: `UNILORIN50-${Date.now()}`,
+      metadata: {
+        full_name: donorDetails.fullName,
+        phone: donorDetails.phone,
+        address: donorDetails.address,
+        category: selectedCategory,
+      },
+      subaccount: splitCode,
+      callback: function (response: any) {
+        const receipt = {
+          transactionId: response.reference,
+          date: new Date().toLocaleDateString(),
+          category: categories.find(c => c.id === selectedCategory)?.title || '',
+          amount: amount
+        };
+        setReceiptDetails(receipt);
+        setShowReceipt(true);
+        toast({
+          title: "Thank you for your donation!",
+          description: "Your contribution to UNILORIN's 50th celebration will make a real difference.",
+        });
+        setIsProcessing(false);
+      },
+      onClose: function () {
+        toast({
+          title: "Donation Cancelled",
+          description: "You closed the payment window.",
+          variant: "destructive",
+        });
+        setIsProcessing(false);
+      }
+    });
+
+    handler.openIframe();
   };
 
   const isFormValid = () => {
@@ -235,7 +277,7 @@ const Index = () => {
             onClick={handleDonate}
             disabled={!isFormValid() || isProcessing}
           >
-            {isProcessing ? 'Processing...' : `Donate ₦${parseInt(amount).toLocaleString()}`}
+            {isProcessing ? 'Processing...' : `Donate ₦${parseInt(amount || '0').toLocaleString()}`}
           </button>
         </div>
       </section>
