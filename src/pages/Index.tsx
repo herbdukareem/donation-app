@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Card } from '@/components/ui/card';
@@ -17,13 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useEffect } from 'react';
-
-declare global {
-  interface Window {
-    PaystackPop: any;
-  }
-}
 
 const categories = [
   {
@@ -46,6 +37,8 @@ const categories = [
   }
 ];
 
+const DonationAmounts = [5000, 10000, 25000, 50000, 100000];
+
 interface DonorDetails {
   fullName: string;
   email: string;
@@ -59,7 +52,7 @@ const Index = () => {
   const [amount, setAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [donorDetails, setDonorDetails] = useState<DonorDetails>({
+  const [donorDetails, setDonorDetails] = useState({
     fullName: '',
     email: '',
     phone: '',
@@ -72,16 +65,6 @@ const Index = () => {
     amount: string;
   } | null>(null);
 
-  useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://js.paystack.co/v1/inline.js";
-    script.async = true;
-    document.body.appendChild(script);
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, []);
-
   const handleDonorDetailsChange = (field: keyof DonorDetails, value: string) => {
     setDonorDetails(prev => ({
       ...prev,
@@ -89,61 +72,71 @@ const Index = () => {
     }));
   };
 
-  const getSplitDetails = (amount: number) => {
-    if (amount >= 1000 && amount < 100000) {
-      return "ACCT_mj9aiw5uvm41c1r"; // UNILORIN
-    } else if (amount >= 500) {
-      return "ACCT_h8imbv2laypvg4b"; // Ashlab
-    }
-    return undefined;
-  };
+const handleDonate = () => {
+  if (!isFormValid()) return;
 
-  const handleDonate = () => {
-    if (!isFormValid()) return;
+  const handler = (window as any).PaystackPop.setup({
+    key: "pk_live_46a66bda92f1fa7663134ac6dbaccdddef517893",
+    email: donorDetails.email,
+    amount: parseInt(amount) * 100, // in kobo
+    currency: "NGN",
+    ref: `UNILORIN-${Date.now()}`,
+    subaccount: "ACCT_7p5yddylh9fec50", // Unilorin's subaccount
+    bearer: "subaccount", // Subaccount bears the fee
+    percentage_charge: 99.9, // Share of donation sent to subaccount
 
-    setIsProcessing(true);
+    metadata: {
+      custom_fields: [
+        {
+          display_name: "Full Name",
+          variable_name: "full_name",
+          value: donorDetails.fullName,
+        },
+        {
+          display_name: "Phone",
+          variable_name: "phone",
+          value: donorDetails.phone,
+        },
+        {
+          display_name: "Address",
+          variable_name: "address",
+          value: donorDetails.address,
+        },
+        {
+          display_name: "Donation Category",
+          variable_name: "donation_category",
+          value: selectedCategory,
+        },
+      ],
+    },
 
-    const splitCode = getSplitDetails(parseInt(amount));
-    const handler = window.PaystackPop.setup({
-      key: 'pk_test_0ef69c5e0189031d58bd743d5c0eaa5fa5b8c743',
-      email: donorDetails.email,
-      amount: parseInt(amount) * 100, // Paystack uses kobo
-      currency: 'NGN',
-      ref: `UNILORIN50-${Date.now()}`,
-      metadata: {
-        full_name: donorDetails.fullName,
-        phone: donorDetails.phone,
-        address: donorDetails.address,
-        category: selectedCategory,
-      },
-      subaccount: splitCode,
-      callback: function (response: any) {
-        const receipt = {
-          transactionId: response.reference,
-          date: new Date().toLocaleDateString(),
-          category: categories.find(c => c.id === selectedCategory)?.title || '',
-          amount: amount
-        };
-        setReceiptDetails(receipt);
-        setShowReceipt(true);
-        toast({
-          title: "Thank you for your donation!",
-          description: "Your contribution to UNILORIN's 50th celebration will make a real difference.",
-        });
-        setIsProcessing(false);
-      },
-      onClose: function () {
-        toast({
-          title: "Donation Cancelled",
-          description: "You closed the payment window.",
-          variant: "destructive",
-        });
-        setIsProcessing(false);
-      }
-    });
+    callback: function (response: any) {
+      setReceiptDetails({
+        transactionId: response.reference,
+        date: new Date().toLocaleDateString(),
+        category: categories.find(c => c.id === selectedCategory)?.title || '',
+        amount: amount,
+      });
+      setShowReceipt(true);
+      toast({
+        title: "Thank you for your donation!",
+        description: "Your payment was successful and routed to the UNILORIN account.",
+      });
+    },
 
-    handler.openIframe();
-  };
+    onClose: function () {
+      toast({
+        title: "Payment cancelled",
+        description: "You cancelled the payment process.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  handler.openIframe();
+};
+
+
 
   const isFormValid = () => {
     return (
@@ -277,7 +270,7 @@ const Index = () => {
             onClick={handleDonate}
             disabled={!isFormValid() || isProcessing}
           >
-            {isProcessing ? 'Processing...' : `Donate ₦${parseInt(amount || '0').toLocaleString()}`}
+            {isProcessing ? 'Processing...' : `Donate ₦${parseInt(amount).toLocaleString()}`}
           </button>
         </div>
       </section>
