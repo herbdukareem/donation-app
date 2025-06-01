@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import PaystackPop from "@paystack/inline-js";
 import { useToast } from "@/components/ui/use-toast";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +40,7 @@ interface DonorDetails {
 
 const Index = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState("");
   const [amount, setAmount] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -64,16 +68,15 @@ const Index = () => {
   const handleDonate = () => {
     if (!isFormValid()) return;
 
-    const handler = (window as any).PaystackPop.setup({
+    const paystack = new PaystackPop();
+    paystack.newTransaction({
       key: "pk_live_46a66bda92f1fa7663134ac6dbaccdddef517893",
       email: donorDetails.email,
-      amount: parseInt(amount) * 100, // in kobo
+      amount: parseInt(amount) * 100, // Amount in kobo
       currency: "NGN",
-      ref: `UNILORIN-${Date.now()}`,
-      subaccount: "ACCT_7p5yddylh9fec50", // Unilorin's subaccount
-      bearer: "subaccount", // Subaccount bears the fee
-      percentage_charge: 99.9, // Share of donation sent to subaccount
-
+      reference: `UNILORIN-${Date.now()}`,
+      subaccount: "ACCT_7p5yddylh9fec50",
+      bearer: "subaccount",
       metadata: {
         custom_fields: [
           {
@@ -98,28 +101,49 @@ const Index = () => {
           },
         ],
       },
+      onSuccess: (transaction: any) => {
+        const endPoint = `http://localhost:8000/verify/${transaction.reference}`;
 
-      callback: (response: any) => {
-        fetch(`http://localhost:8000/verify/${response.reference}`)
-          .then((res) => res.json())
-          .then((result) => {
-            console.log("Payment verification result:", result);
+        axios
+          .get(endPoint)
+          .then((res) => {
+            const result = res.data;
+
+            setReceiptDetails({
+              transactionId: result.transaction.reference,
+              date: new Date().toLocaleDateString(),
+              category: categories.find((c) => c.id === selectedCategory)?.title || "",
+              amount: amount,
+            });
+
+            setShowReceipt(true);
+
+            toast({
+              title: "Thank you for your donation!",
+              description: "Your payment was successful and routed to the UNILORIN account.",
+            });
           })
           .catch((error) => {
             console.error("Error verifying payment:", error);
+            toast({
+              title: "Verification Error",
+              description: "There was an error verifying your payment. Please contact support.",
+              variant: "destructive",
+            });
+          })
+          .finally(() => {
+            setIsProcessing(false);
           });
       },
-
-      onClose: function () {
+      onCancel: () => {
         toast({
-          title: "Payment cancelled",
+          title: "Payment Cancelled",
           description: "You cancelled the payment process.",
           variant: "destructive",
         });
+        setIsProcessing(false);
       },
     });
-
-    handler.openIframe();
   };
 
   const isFormValid = () => {
@@ -231,7 +255,12 @@ const Index = () => {
                 <p className="text-sm text-muted-foreground">Amount</p>
                 <p className="text-xl font-semibold">₦{parseInt(receiptDetails.amount).toLocaleString()}</p>
               </div>
-              <button className="button-primary w-full" onClick={() => setShowReceipt(false)}>
+              <button
+                className="button-primary w-full"
+                onClick={() => {
+                  setShowReceipt(false);
+                  navigate("/dashboard");
+                }}>
                 Close Receipt
               </button>
             </div>
